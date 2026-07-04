@@ -1,0 +1,5 @@
+# Build temp files
+tools/_temp/
+
+# Zip packages
+*.zip

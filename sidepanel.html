@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J-Sub Explainer Engine</title>
+
+    <!-- ── Fonts: Inter for UI, Noto Sans JP for Japanese text ── -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ═══════════════════════════════════════════════════════════
+           §1. Base Reset & Theme
+           ═══════════════════════════════════════════════════════════ */
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-card: #141414;
+            --bg-card-hover: #1a1a1a;
+            --bg-card-active: #1a1214;
+            --bg-input: #1c1c1c;
+            --bg-elevated: #1e1e1e;
+            --border-default: #2a2a2a;
+            --border-subtle: #222;
+            --border-accent: #e50914;
+            --text-primary: #f1f1f1;
+            --text-secondary: #999;
+            --text-muted: #666;
+            --text-dim: #555;
+            --accent: #e50914;
+            --accent-dark: #b81d24;
+            --accent-glow: rgba(229, 9, 20, 0.25);
+            --accent-glow-strong: rgba(229, 9, 20, 0.45);
+            --success: #2ecc71;
+            --warning: #f39c12;
+            --error: #e74c3c;
+            --info: #3498db;
+            --mastery-new: #e74c3c;
+            --mastery-learning: #f39c12;
+            --mastery-familiar: #f1c40f;
+            --mastery-known: #2ecc71;
+            --mastery-mastered: #3498db;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --radius-xl: 18px;
+            --transition-fast: 0.2s ease;
+            --transition-normal: 0.3s ease;
+            --transition-smooth: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 0;
+            margin: 0;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §2. Header Bar
+           ═══════════════════════════════════════════════════════════ */
+
+        .header-bar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: linear-gradient(180deg, var(--bg-card) 0%, rgba(20, 20, 20, 0.97) 100%);
+            padding: 14px 16px 0;
+            border-bottom: none;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0;
+        }
+
+        h1 {
+            font-size: 0.82rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        h1::before {
+            content: "";
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-glow-strong);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .settings-toggle, .header-btn {
+            background: none;
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+            font-size: 0.72rem;
+            padding: 5px 10px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .settings-toggle:hover, .header-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        /* ── Settings Panel (Collapsible) ── */
+
+        .settings-panel {
+            overflow: hidden;
+            max-height: 200px;
+            transition: max-height 0.4s ease, opacity 0.3s ease, margin-top 0.3s ease;
+            opacity: 1;
+            margin-top: 14px;
+        }
+
+        .settings-panel.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        input[type="password"] {
+            padding: 9px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-default);
+            background: var(--bg-input);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            outline: none;
+            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+
+        input[type="password"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        input[type="password"]::placeholder {
+            color: var(--text-muted);
+        }
+
+        .btn-primary {
+            padding: 9px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.82rem;
+            font-family: 'Inter', sans-serif;
+            transition: all var(--transition-fast);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary.saved {
+            background: var(--success);
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §3. Tab Navigation
+           ═══════════════════════════════════════════════════════════ */
+
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            margin-top: 14px;
+            position: relative;
+        }
+
+        .tab-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 10px 0 12px;
+            cursor: pointer;
+            transition: color var(--transition-fast);
+            position: relative;
+            letter-spacing: 0.3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-secondary);
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+        }
+
+        .tab-indicator {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            background: var(--accent);
+            border-radius: 1px 1px 0 0;
+            transition: left var(--transition-smooth), width var(--transition-smooth);
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+
+        .tab-badge {
+            background: var(--accent);
+            color: white;
+            font-size: 0.6rem;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 10px;
+            min-width: 16px;
+            text-align: center;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §4. Progress Bar
+           ═══════════════════════════════════════════════════════════ */
+
+        #progress-wrapper {
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-default);
+        }
+
+        #status-text {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 4px;
+            background: var(--border-default);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-dark), var(--accent), #ff4757);
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 2px;
+            position: relative;
+        }
+
+        #progress-bar::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            animation: shimmer-bar 2s infinite;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §5. Tab Panels — Content Areas
+           ═══════════════════════════════════════════════════════════ */
+
+        .tab-panel {
+            display: none;
+            animation: fade-in-panel 0.3s ease;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        @keyframes fade-in-panel {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §5a. Transcript Container — Sentence Boxes
+           ═══════════════════════════════════════════════════════════ */
+
+        #transcript-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 12px;
+            padding-bottom: 80px;
+        }
+
+        .sentence-box {
+            background: var(--bg-card);
+            padding: 14px 16px;
+            border-radius: var(--radius-md);
+            border-left: 3px solid transparent;
+            transition: all var(--transition-normal);
+            position: relative;
+        }
+
+        .sentence-box:hover {
+            border-left-color: var(--border-default);
+            background: var(--bg-card-hover);
+        }
+
+        /* ── Active (highlighted) state ── */
+
+        .sentence-box.is-active {
+            border-left-color: var(--accent);
+            background: var(--bg-card-active);
+            box-shadow: 0 0 20px var(--accent-glow),
+                        inset 0 0 30px rgba(229, 9, 20, 0.03);
+            animation: active-pulse 2.5s ease-in-out infinite;
+        }
+
+        .sentence-box.is-active .jp-text {
+            color: var(--accent);
+        }
+
+        .sentence-box.is-active .jp-token:not(:hover) {
+            color: var(--accent);
+        }
+
+        .sentence-box.is-active .en-translation {
+            color: #d0d0d0;
+        }
+
+        /* ── Japanese Text ── */
+
+        .jp-text {
+            font-family: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+            font-size: 1.05rem;
+            line-height: 1.7;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+            transition: color var(--transition-normal);
+        }
+
+        /* ── Clickable Japanese Token ── */
+
+        .jp-token {
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border-radius: 3px;
+            padding: 0 1px;
+            position: relative;
+        }
+
+        .jp-token:hover {
+            color: var(--accent) !important;
+            background: rgba(229, 9, 20, 0.1);
+            text-decoration-line: underline;
+            text-decoration-style: dotted;
+            text-underline-offset: 4px;
+            text-decoration-color: var(--accent);
+        }
+
+        .jp-token.is-looked-up {
+            color: var(--accent) !important;
+            background: rgba(229, 9, 20, 0.15);
+        }
+
+        .jp-token.is-saved {
+            border-bottom: 2px solid var(--success);
+        }
+
+        .jp-separator {
+            pointer-events: none;
+        }
+
+        /* ── English Translation ── */
+
+        .en-translation {
+            color: var(--text-secondary);
+            font-size: 0.88rem;
+            line-height: 1.5;
+            font-style: italic;
+            transition: color var(--transition-normal);
+            min-height: 1.3em;
+        }
+
+        .en-translation .error {
+            color: var(--warning);
+            font-style: normal;
+            font-size: 0.8rem;
+        }
+
+        .en-translation .error-critical {
+            color: var(--error);
+            font-style: normal;
+            font-size: 0.8rem;
+        }
+
+        /* ── Shimmer loading animation ── */
+
+        .en-translation .shimmer {
+            font-style: normal;
+            color: var(--text-muted);
+            background: linear-gradient(
+                90deg,
+                var(--text-muted) 0%,
+                var(--text-secondary) 40%,
+                var(--text-muted) 80%
+            );
+            background-size: 200% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmer-text 1.8s ease-in-out infinite;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §6. Word Definition Tooltip
+           ═══════════════════════════════════════════════════════════ */
+
+        .word-tooltip {
+            position: fixed;
+            z-index: 10000;
+            min-width: 260px;
+            max-width: 360px;
+            background: rgba(18, 18, 18, 0.97);
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-lg);
+            padding: 0;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6),
+                        0 0 20px var(--accent-glow);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            opacity: 0;
+            transform: translateY(8px) scale(0.97);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .word-tooltip.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        .tooltip-close {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: color var(--transition-fast);
+            z-index: 1;
+            line-height: 1;
+            padding: 4px;
+        }
+
+        .tooltip-close:hover {
+            color: var(--accent);
+        }
+
+        .tooltip-content {
+            padding: 16px;
+            font-size: 0.84rem;
+            line-height: 1.65;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+
+        .tooltip-content strong {
+            color: var(--accent);
+        }
+
+        .tooltip-content br {
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        /* ── Dict entry styles inside tooltip ── */
+        .dict-entry { }
+
+        .dict-header {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+
+        .dict-word {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .dict-reading {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .dict-deconj {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            font-style: italic;
+        }
+
+        .dict-sense {
+            margin-bottom: 4px;
+        }
+
+        .dict-pos {
+            display: inline-block;
+            font-size: 0.68rem;
+            color: var(--info);
+            background: rgba(52, 152, 219, 0.12);
+            padding: 1px 6px;
+            border-radius: 3px;
+            margin-right: 6px;
+            margin-bottom: 2px;
+            font-weight: 500;
+        }
+
+        .dict-gloss {
+            display: block;
+            color: var(--text-primary);
+            font-size: 0.82rem;
+            padding-left: 4px;
+        }
+
+        /* ── Tooltip Action Bar (Save button) ── */
+
+        .tooltip-actions {
+            display: flex;
+            padding: 10px 16px;
+            border-top: 1px solid var(--border-default);
+            background: rgba(10, 10, 10, 0.6);
+            gap: 8px;
+        }
+
+        .tooltip-save-btn {
+            flex: 1;
+            background: rgba(229, 9, 20, 0.1);
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 7px 12px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .tooltip-save-btn:hover {
+            background: var(--accent);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .tooltip-save-btn.is-saved {
+            background: rgba(46, 204, 113, 0.15);
+            border-color: var(--success);
+            color: var(--success);
+            cursor: default;
+        }
+
+        .tooltip-save-btn.is-saved:hover {
+            transform: none;
+        }
+
+        /* ── Tooltip loading state ── */
+
+        .tooltip-loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-default);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            flex-shrink: 0;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §7. Vocabulary Panel
+           ═══════════════════════════════════════════════════════════ */
+
+        .vocab-panel {
+            padding: 16px;
+            padding-bottom: 80px;
+        }
+
+        /* ── Stats Dashboard ── */
+
+        .vocab-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            text-align: center;
+            transition: all var(--transition-fast);
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-default);
+            transform: translateY(-1px);
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+        }
+
+        /* ── Mastery Bar ── */
+        .mastery-bar {
+            display: flex;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 16px;
+            gap: 2px;
+        }
+
+        .mastery-segment {
+            transition: flex var(--transition-smooth);
+            border-radius: 3px;
+            min-width: 0;
+        }
+
+        /* ── Search & Filter ── */
+
+        .vocab-toolbar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .vocab-search {
+            flex: 1;
+            padding: 9px 12px 9px 32px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-default);
+            background: var(--bg-input);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.82rem;
+            outline: none;
+            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+
+        .vocab-search:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .vocab-search::placeholder {
+            color: var(--text-muted);
+        }
+
+        .search-wrapper {
+            position: relative;
+            flex: 1;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+
+        .vocab-sort {
+            padding: 9px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-default);
+            background: var(--bg-input);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem;
+            outline: none;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            padding-right: 28px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+
+        /* ── Import/Export Buttons ── */
+        .vocab-actions {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+
+        .vocab-action-btn {
+            flex: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.72rem;
+            font-weight: 500;
+            padding: 7px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .vocab-action-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        /* ── Word Cards ── */
+
+        .word-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            position: relative;
+            overflow: hidden;
+            animation: fade-in-up 0.3s ease both;
+        }
+
+        .word-card:hover {
+            border-color: var(--border-default);
+            background: var(--bg-card-hover);
+            transform: translateX(2px);
+        }
+
+        .word-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .word-card-word {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .word-card-mastery {
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .word-card-reading {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .word-card-meaning {
+            font-size: 0.82rem;
+            color: var(--text-primary);
+        }
+
+        .word-card-pos {
+            font-size: 0.7rem;
+            color: var(--info);
+            margin-top: 4px;
+        }
+
+        /* ── Expanded Word Card ── */
+
+        .word-card-detail {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+            padding-top: 0;
+        }
+
+        .word-card.expanded .word-card-detail {
+            max-height: 300px;
+            padding-top: 10px;
+        }
+
+        .word-card-sentence {
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            font-style: italic;
+            margin-top: 6px;
+            padding: 8px;
+            background: rgba(255,255,255,0.02);
+            border-radius: var(--radius-sm);
+            border-left: 2px solid var(--border-default);
+        }
+
+        .word-card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .word-card-delete {
+            background: none;
+            border: 1px solid var(--error);
+            color: var(--error);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            padding: 4px 10px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            opacity: 0.7;
+        }
+
+        .word-card-delete:hover {
+            background: var(--error);
+            color: white;
+            opacity: 1;
+        }
+
+        /* ── Empty Vocab State ── */
+        .vocab-empty {
+            text-align: center;
+            padding: 50px 24px;
+            color: var(--text-muted);
+        }
+
+        .vocab-empty .icon {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            opacity: 0.4;
+        }
+
+        .vocab-empty p {
+            font-size: 0.82rem;
+            line-height: 1.6;
+            max-width: 240px;
+            margin: 0 auto;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §8. Reader / Flashcard Panel
+           ═══════════════════════════════════════════════════════════ */
+
+        .reader-panel {
+            padding: 16px;
+            padding-bottom: 80px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* ── Reader Controls ── */
+        .reader-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            width: 100%;
+        }
+
+        .reader-filter {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-default);
+            background: var(--bg-input);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem;
+            outline: none;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            padding-right: 28px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+
+        .reader-shuffle-btn {
+            padding: 8px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem;
+            transition: all var(--transition-fast);
+        }
+
+        .reader-shuffle-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        /* ── Progress ── */
+        .reader-progress {
+            width: 100%;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .reader-progress-text {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .reader-progress-track {
+            width: 100%;
+            height: 4px;
+            background: var(--border-default);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .reader-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            border-radius: 2px;
+            transition: width var(--transition-smooth);
+        }
+
+        /* ── Flashcard ── */
+
+        .flashcard-container {
+            width: 100%;
+            max-width: 340px;
+            perspective: 800px;
+            margin: 8px 0 20px;
+        }
+
+        .flashcard {
+            width: 100%;
+            min-height: 220px;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .flashcard.is-flipped {
+            transform: rotateY(180deg);
+        }
+
+        .flashcard-face {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            min-height: 220px;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            border-radius: var(--radius-xl);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 30px 24px;
+        }
+
+        .flashcard-front {
+            background: linear-gradient(145deg, var(--bg-card), var(--bg-elevated));
+            border: 1px solid var(--border-default);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+
+        .flashcard-back {
+            background: linear-gradient(145deg, var(--bg-elevated), var(--bg-card));
+            border: 1px solid var(--border-default);
+            transform: rotateY(180deg);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+
+        .flashcard-kanji {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .flashcard-hint {
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .flashcard-back-reading {
+            font-family: 'Noto Sans JP', sans-serif;
+            font-size: 1.3rem;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+
+        .flashcard-back-meaning {
+            font-size: 0.92rem;
+            color: var(--text-primary);
+            text-align: center;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .flashcard-back-pos {
+            font-size: 0.72rem;
+            color: var(--info);
+            background: rgba(52, 152, 219, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        /* ── Rating Buttons ── */
+
+        .reader-rating {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .rating-btn {
+            padding: 10px 4px;
+            border: 1px solid var(--border-default);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 600;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        .rating-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .rating-btn.rate-again {
+            border-color: rgba(231, 76, 60, 0.4);
+            color: var(--error);
+        }
+        .rating-btn.rate-again:hover {
+            background: rgba(231, 76, 60, 0.15);
+            border-color: var(--error);
+        }
+
+        .rating-btn.rate-hard {
+            border-color: rgba(243, 156, 18, 0.4);
+            color: var(--warning);
+        }
+        .rating-btn.rate-hard:hover {
+            background: rgba(243, 156, 18, 0.15);
+            border-color: var(--warning);
+        }
+
+        .rating-btn.rate-good {
+            border-color: rgba(46, 204, 113, 0.4);
+            color: var(--success);
+        }
+        .rating-btn.rate-good:hover {
+            background: rgba(46, 204, 113, 0.15);
+            border-color: var(--success);
+        }
+
+        .rating-btn.rate-easy {
+            border-color: rgba(52, 152, 219, 0.4);
+            color: var(--info);
+        }
+        .rating-btn.rate-easy:hover {
+            background: rgba(52, 152, 219, 0.15);
+            border-color: var(--info);
+        }
+
+        .rating-emoji {
+            display: block;
+            font-size: 1.2rem;
+            margin-bottom: 2px;
+        }
+
+        /* ── Navigation Arrows ── */
+
+        .reader-nav {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 16px;
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .nav-btn {
+            flex: 1;
+            padding: 9px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem;
+            transition: all var(--transition-fast);
+            text-align: center;
+        }
+
+        .nav-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* ── Reader Empty State ── */
+        .reader-empty {
+            text-align: center;
+            padding: 50px 24px;
+            color: var(--text-muted);
+        }
+
+        .reader-empty .icon {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            opacity: 0.4;
+        }
+
+        .reader-empty p {
+            font-size: 0.82rem;
+            line-height: 1.6;
+            max-width: 240px;
+            margin: 0 auto;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §9. Empty / No-Content State (Transcript)
+           ═══════════════════════════════════════════════════════════ */
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 24px;
+            color: var(--text-muted);
+        }
+
+        .empty-state .icon {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state p {
+            font-size: 0.85rem;
+            line-height: 1.6;
+            max-width: 260px;
+            margin: 0 auto;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §10. Scrollbar
+           ═══════════════════════════════════════════════════════════ */
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-default);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           §11. Animations
+           ═══════════════════════════════════════════════════════════ */
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--accent-glow-strong); }
+            50% { opacity: 0.5; box-shadow: 0 0 4px var(--accent-glow); }
+        }
+
+        @keyframes active-pulse {
+            0%, 100% { box-shadow: 0 0 15px var(--accent-glow); }
+            50% { box-shadow: 0 0 25px var(--accent-glow-strong); }
+        }
+
+        @keyframes shimmer-text {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        @keyframes shimmer-bar {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes card-save-pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes word-delete {
+            to {
+                opacity: 0;
+                transform: translateX(40px);
+                max-height: 0;
+                margin-bottom: 0;
+                padding: 0 16px;
+            }
+        }
+
+        .sentence-box {
+            animation: fade-in-up 0.3s ease both;
+        }
+
+        /* Stagger the entrance animation for visual polish */
+        .sentence-box:nth-child(1)  { animation-delay: 0.00s; }
+        .sentence-box:nth-child(2)  { animation-delay: 0.02s; }
+        .sentence-box:nth-child(3)  { animation-delay: 0.04s; }
+        .sentence-box:nth-child(4)  { animation-delay: 0.06s; }
+        .sentence-box:nth-child(5)  { animation-delay: 0.08s; }
+        .sentence-box:nth-child(6)  { animation-delay: 0.10s; }
+        .sentence-box:nth-child(7)  { animation-delay: 0.12s; }
+        .sentence-box:nth-child(8)  { animation-delay: 0.14s; }
+        .sentence-box:nth-child(9)  { animation-delay: 0.16s; }
+        .sentence-box:nth-child(10) { animation-delay: 0.18s; }
+
+        /* Hidden file input */
+        #import-file-input { display: none; }
+
+        /* ═══════════════════════════════════════════════════════════
+           §12. Scroll-to-Active FAB Button
+           ═══════════════════════════════════════════════════════════ */
+
+        .scroll-to-active-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 20px;
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 10px 18px;
+            background: rgba(229, 9, 20, 0.88);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 28px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 4px 20px rgba(229, 9, 20, 0.4),
+                        0 2px 8px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            transform: translateY(12px) scale(0.92);
+            transition: opacity 0.25s ease, transform 0.25s ease,
+                        background 0.2s ease, box-shadow 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .scroll-to-active-btn.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .scroll-to-active-btn:hover {
+            background: rgba(229, 9, 20, 1);
+            box-shadow: 0 6px 28px rgba(229, 9, 20, 0.55),
+                        0 2px 10px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px) scale(1.03);
+        }
+
+        .scroll-to-active-btn:active {
+            transform: translateY(0) scale(0.98);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Header: Title + Settings + Tabs
+         ════════════════════════════════════════════════════════════ -->
+
+    <div class="header-bar" id="header-bar">
+        <div class="header-top">
+            <h1>Translation Engine</h1>
+            <div class="header-actions">
+                <button class="settings-toggle" id="settings-toggle">⚙ Settings</button>
+            </div>
+        </div>
+
+        <div class="settings-panel collapsed" id="settings-panel">
+            <div class="input-group">
+                <input type="password" id="deepl-key" placeholder="DeepL API Key (Primary)" autocomplete="off" spellcheck="false">
+                <input type="password" id="gemini-key" placeholder="Gemini API Key (Fallback + Dictionary)" autocomplete="off" spellcheck="false">
+                <button class="btn-primary" id="save-keys-btn">Save API Keys</button>
+            </div>
+        </div>
+
+        <!-- ── Tab Navigation ── -->
+        <div class="tab-bar" id="tab-bar">
+            <button class="tab-btn active" data-tab="subtitles">📺 Subtitles</button>
+            <button class="tab-btn" data-tab="vocabulary">📚 Vocab <span class="tab-badge" id="vocab-badge" style="display:none">0</span></button>
+            <button class="tab-btn" data-tab="reader">📖 Reader</button>
+            <div class="tab-indicator" id="tab-indicator"></div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Tab Panel: Subtitles
+         ════════════════════════════════════════════════════════════ -->
+
+    <div class="tab-panel active" id="panel-subtitles">
+        <div id="progress-wrapper">
+            <div id="status-text">Waiting for subtitles…</div>
+            <div class="progress-track"><div id="progress-bar"></div></div>
+        </div>
+
+        <div id="transcript-container">
+            <div class="empty-state">
+                <div class="icon">字</div>
+                <p>Start playing a Japanese-subtitled show on Netflix. Subtitles will appear here automatically.</p>
+            </div>
+        </div>
+
+        <!-- Scroll-to-Active FAB Button -->
+        <button class="scroll-to-active-btn" id="scroll-to-active-btn" style="display:none" title="Jump to current subtitle">
+            ▶ Now Playing
+        </button>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Tab Panel: Vocabulary
+         ════════════════════════════════════════════════════════════ -->
+
+    <div class="tab-panel" id="panel-vocabulary">
+        <div class="vocab-panel">
+            <!-- Stats -->
+            <div class="vocab-stats" id="vocab-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">Total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-mastered">0</div>
+                    <div class="stat-label">Mastered</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-today">0</div>
+                    <div class="stat-label">Today</div>
+                </div>
+            </div>
+
+            <!-- Mastery Breakdown Bar -->
+            <div class="mastery-bar" id="mastery-bar"></div>
+
+            <!-- Search & Sort -->
+            <div class="vocab-toolbar">
+                <div class="search-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" class="vocab-search" id="vocab-search" placeholder="Search words…">
+                </div>
+                <select class="vocab-sort" id="vocab-sort">
+                    <option value="newest">Newest</option>
+                    <option value="oldest">Oldest</option>
+                    <option value="alpha">A → Z</option>
+                    <option value="mastery-asc">Mastery ↑</option>
+                    <option value="mastery-desc">Mastery ↓</option>
+                </select>
+            </div>
+
+            <!-- Export / Import -->
+            <div class="vocab-actions">
+                <button class="vocab-action-btn" id="export-btn">📤 Export</button>
+                <button class="vocab-action-btn" id="import-btn">📥 Import</button>
+                <input type="file" id="import-file-input" accept=".json">
+            </div>
+
+            <!-- Word List -->
+            <div id="vocab-list"></div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Tab Panel: Reader (Flashcards)
+         ════════════════════════════════════════════════════════════ -->
+
+    <div class="tab-panel" id="panel-reader">
+        <div class="reader-panel" id="reader-content">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Scripts
+         ════════════════════════════════════════════════════════════ -->
+    <script src="dict-engine.js"></script>
+    <script src="word-store.js"></script>
+    <script src="sidepanel.js"></script>
+</body>
+</html>
