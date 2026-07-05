@@ -353,6 +353,7 @@
             border-left: 3px solid transparent;
             transition: all var(--transition-normal);
             position: relative;
+            cursor: pointer;
         }
 
         .sentence-box:hover {
@@ -388,9 +389,12 @@
             font-family: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif;
             font-size: 1.05rem;
             line-height: 1.7;
-            margin-bottom: 6px;
             color: var(--text-primary);
             transition: color var(--transition-normal);
+        }
+
+        .sentence-box.show-translation .jp-text {
+            margin-bottom: 6px;
         }
 
         /* ── Clickable Japanese Token ── */
@@ -428,12 +432,16 @@
         /* ── English Translation ── */
 
         .en-translation {
+            display: none;
             color: var(--text-secondary);
             font-size: 0.88rem;
             line-height: 1.5;
             font-style: italic;
             transition: color var(--transition-normal);
-            min-height: 1.3em;
+        }
+
+        .sentence-box.show-translation .en-translation {
+            display: block;
         }
 
         .en-translation .error {

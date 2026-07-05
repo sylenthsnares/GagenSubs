@@ -42,6 +42,9 @@ let currentTooltipWordData = null; // Holds dict data for save button
 let currentTooltipForWord = null;  // Tracks which word the tooltip is for
 let _lookupInProgress = false;     // Prevents double-trigger on rapid clicks
 
+/** Cache for words lookup fetched from Gemini in batches */
+let geminiDictCache = {};
+
 /** Current active tab */
 let activeTab = "subtitles";
 
@@ -58,8 +61,11 @@ let readerFlipped = false;
 document.getElementById("deepl-key").value = DEEPL_KEY;
 document.getElementById("gemini-key").value = GEMINI_KEY;
 
-// ── Load cached subtitles (guards against side panel open race condition) ──
-chrome.storage.local.get(["cachedSubtitles"], (result) => {
+// ── Load cached subtitles & Gemini dict cache ────────────────────
+chrome.storage.local.get(["cachedSubtitles", "geminiDictCache"], (result) => {
+    if (result.geminiDictCache) {
+        geminiDictCache = result.geminiDictCache;
+    }
     if (result.cachedSubtitles?.length > 0) {
         renderSubtitles(result.cachedSubtitles);
     }
@@ -185,6 +191,16 @@ function updateIndicator(btn) {
  * @returns {Array<{text: string, clickable: boolean}>}
  */
 function tokenizeJapanese(text) {
+    // Check if the dictionary is loaded and accessible
+    const dict = typeof getLoadedDictionary === "function" ? getLoadedDictionary() : null;
+    if (dict) {
+        try {
+            return segmentWithDict(text, dict);
+        } catch (err) {
+            console.warn("J-SUB: segmentWithDict error, falling back to regex tokenizer:", err);
+        }
+    }
+
     const tokens = [];
 
     // Regex alternations ordered by priority (most specific first)
@@ -277,6 +293,13 @@ async function renderSubtitles(subs) {
         span.addEventListener("click", handleTokenClick);
     });
 
+    // Attach click handlers to sentence boxes to toggle translation visibility
+    container.querySelectorAll(".sentence-box").forEach((box) => {
+        box.addEventListener("click", () => {
+            box.classList.toggle("show-translation");
+        });
+    });
+
     // Guard: if no API keys are set, stop here
     if (noKeys) {
         updateProgress("⚠ No API keys configured — open Settings", 0);
@@ -287,6 +310,16 @@ async function renderSubtitles(subs) {
     // This prioritizes translating what the user is currently watching,
     // then radiates outward (forward first, then backward)
     updateProgress("Queuing batch translation…");
+
+    // Run background prefetch for missing words using Gemini for lesser API rate usage
+    loadDictionary().then((dict) => {
+        if (dict && GEMINI_KEY) {
+            prefetchMissingWords(subs, dict).catch((err) => {
+                console.error("J-SUB: prefetchMissingWords error:", err);
+            });
+        }
+    });
+
     await processInBatches(subs, resumeFrom);
 }
 
@@ -374,7 +407,7 @@ async function processInBatches(subs, startIndex = 0) {
 
 /**
  * Translates an array of text strings.
- * Strategy: DeepL (primary, fast) → Gemini 2.0 Flash (fallback)
+ * Strategy: DeepL (primary, fast) → Gemini 3.5 Flash (fallback)
  *
  * Returns an array of { text, error? } objects in the same order.
  */
@@ -415,7 +448,7 @@ async function translateBatchTexts(texts) {
         }
     }
 
-    // ── Engine 2: Gemini 2.0 Flash (Fallback) ────────────────────
+    // ── Engine 2: Gemini 3.5 Flash (Fallback) ────────────────────
     if (GEMINI_KEY) {
         try {
             const prompt =
@@ -425,7 +458,7 @@ async function translateBatchTexts(texts) {
                 `Input: ${JSON.stringify(texts)}`;
 
             const url =
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" +
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent" +
                 `?key=${GEMINI_KEY}`;
 
             const res = await fetch(url, {
@@ -725,9 +758,9 @@ async function handleTokenClick(event) {
 
     // ── Try offline dictionary first ─────────────────────────────
     const dictResult = await lookupWord(word);
-    _lookupInProgress = false; // Release guard after async work
 
     if (dictResult) {
+        _lookupInProgress = false; // Release guard after async work
         const html = formatDictResult(dictResult);
         const wordData = extractWordData(dictResult);
         wordData.sentence = sentence;
@@ -736,6 +769,36 @@ async function handleTokenClick(event) {
         showTooltip(span, html, wordData, saved);
         return;
     }
+
+    // ── Try Gemini batch cache next ──────────────────────────────
+    if (geminiDictCache[word]) {
+        _lookupInProgress = false;
+        const wordData = { ...geminiDictCache[word] }; // Shallow copy
+        wordData.sentence = sentence;
+
+        let html = `<div class="dict-entry">`;
+        html += `<div class="dict-header">`;
+        html += `<span class="dict-word">📖 ${escapeHtml(wordData.word)}</span>`;
+        if (wordData.reading) {
+            html += `<span class="dict-reading">【${escapeHtml(wordData.reading)}】</span>`;
+        }
+        html += `</div>`;
+        html += `<div class="dict-sense">`;
+        if (wordData.pos) {
+            html += `<span class="dict-pos">${escapeHtml(wordData.pos)}</span>`;
+        }
+        html += `<span class="dict-gloss">${escapeHtml(wordData.meaning)}</span>`;
+        html += `</div>`;
+        html += `<div class="dict-deconj" style="margin-top:6px;color:var(--text-dim);font-size:0.7rem;">via Gemini Batch Cache</div>`;
+        html += `</div>`;
+
+        currentTooltipWordData = wordData;
+        const saved = await isWordSaved(wordData.word);
+        showTooltip(span, html, wordData, saved);
+        return;
+    }
+
+    _lookupInProgress = false; // Release guard for live fallback
 
     // ── Fallback to Gemini API ───────────────────────────────────
     if (!GEMINI_KEY) {
@@ -752,7 +815,7 @@ async function handleTokenClick(event) {
             `Keep it brief and focused.`;
 
         const url =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" +
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent" +
             `?key=${GEMINI_KEY}`;
 
         const res = await fetch(url, {
@@ -1499,3 +1562,146 @@ function updateScrollToActiveButton() {
 
 // ── Initialize the scroll-to-active button on load ───────────────
 initScrollToActiveButton();
+
+// ═══════════════════════════════════════════════════════════════════
+// §13. Background Batch Pre-fetching for Missing Words
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Prefetches definitions from Gemini for all words in the subtitles
+ * that do not exist in the offline JMDict dictionary.
+ * Runs in the background and saves definitions to geminiDictCache.
+ */
+async function prefetchMissingWords(subs, dict) {
+    const allUniqueWords = new Set();
+    for (const sub of subs) {
+        const tokens = tokenizeJapanese(sub.text);
+        for (const token of tokens) {
+            if (token.clickable) {
+                const word = token.text;
+                // Only inspect words not in offline dict and not already in cache
+                if (!dict[word] && !geminiDictCache[word]) {
+                    // Check if base form conjugations are in dictionary
+                    const baseForms = deconjugate(word);
+                    let foundBase = false;
+                    for (const base of baseForms) {
+                        if (dict[base]) { foundBase = true; break; }
+                    }
+                    if (foundBase) continue;
+
+                    // Check stripped particles
+                    const particles = ["は", "が", "を", "に", "で", "と", "も", "の", "へ", "か", "よ", "ね"];
+                    let foundStripped = false;
+                    for (const p of particles) {
+                        if (word.endsWith(p) && word.length > 1) {
+                            const stripped = word.slice(0, -1);
+                            if (dict[stripped]) { foundStripped = true; break; }
+                            const strippedBases = deconjugate(stripped);
+                            for (const base of strippedBases) {
+                                if (dict[base]) { foundStripped = true; break; }
+                            }
+                        }
+                    }
+                    if (foundStripped) continue;
+
+                    allUniqueWords.add(word);
+                }
+            }
+        }
+    }
+
+    const missingWords = Array.from(allUniqueWords);
+    if (missingWords.length === 0) return;
+
+    console.log(`J-SUB: Found ${missingWords.length} unique words missing from JMDict. Fetching definitions from Gemini in background batches...`);
+
+    const BATCH_SIZE = 15;
+    for (let i = 0; i < missingWords.length; i += BATCH_SIZE) {
+        const batch = missingWords.slice(i, i + BATCH_SIZE);
+        await fetchWordDefinitionsBatch(batch);
+        if (i + BATCH_SIZE < missingWords.length) {
+            await sleep(2500); // 2.5s pace to avoid hitting Gemini rate limit
+        }
+    }
+}
+
+/**
+ * Calls Gemini to translate/explain a list of words in a single batch request.
+ */
+async function fetchWordDefinitionsBatch(words) {
+    try {
+        const prompt =
+            `You are a highly precise, concise Japanese-English dictionary.\n` +
+            `For each Japanese word in the following list, provide a brief dictionary entry (reading in hiragana, part of speech, and English meaning).\n\n` +
+            `Input words: ${JSON.stringify(words)}\n\n` +
+            `Format your response EXACTLY as a JSON object where the keys are the input words, and the values are objects structured EXACTLY like this (no markdown, no code fences, no explanations):\n` +
+            `{\n` +
+            `  "word1": {"word": "word1", "reading": "hiragana reading", "pos": "noun/verb/adj...", "meaning": "English meaning"}\n` +
+            `}`;
+
+        const url =
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent" +
+            `?key=${GEMINI_KEY}`;
+
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+            }),
+        });
+
+        if (!res.ok) {
+            console.warn(`J-SUB: Gemini batch word lookup returned HTTP ${res.status}`);
+            return;
+        }
+
+        const data = await res.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const parsed = parseGeminiBatchResponse(rawText);
+
+        if (parsed) {
+            let addedCount = 0;
+            for (const key of Object.keys(parsed)) {
+                const entry = parsed[key];
+                if (entry && entry.word) {
+                    geminiDictCache[key] = {
+                        word: entry.word,
+                        reading: entry.reading || "",
+                        pos: entry.pos || "",
+                        meaning: entry.meaning || "",
+                        allSenses: [{ pos: entry.pos || "", meaning: entry.meaning || "" }]
+                    };
+                    addedCount++;
+                }
+            }
+            console.log(`J-SUB: Cached definitions for ${addedCount} missing words from Gemini.`);
+            chrome.storage.local.set({ geminiDictCache });
+        }
+    } catch (e) {
+        console.error("J-SUB: Failed to fetch word definitions batch:", e);
+    }
+}
+
+/**
+ * Parses the raw text returned by Gemini into a JSON dictionary object.
+ */
+function parseGeminiBatchResponse(rawText) {
+    try {
+        const cleaned = rawText
+            .replace(/^```(?:json)?\s*/im, "")
+            .replace(/```\s*$/im, "")
+            .trim();
+        return JSON.parse(cleaned);
+    } catch (e) {
+        try {
+            const match = rawText.match(/\{[\s\S]*\}/);
+            if (match) {
+                return JSON.parse(match[0]);
+            }
+        } catch (err) {
+            console.warn("J-SUB: Failed to parse Gemini batch response:", err);
+        }
+    }
+    return null;
+}
