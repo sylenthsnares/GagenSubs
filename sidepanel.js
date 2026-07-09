@@ -20,10 +20,6 @@
 // §1. State & Configuration
 // ═══════════════════════════════════════════════════════════════════
 
-/** API keys — persisted in localStorage across side panel sessions */
-let DEEPL_KEY = localStorage.getItem("deepl_api_key") || "";
-let GEMINI_KEY = localStorage.getItem("gemini_api_key") || "";
-
 /** Translation progress tracking */
 let totalSubs = 0;
 let processedSubs = 0;
@@ -42,9 +38,6 @@ let currentTooltipWordData = null; // Holds dict data for save button
 let currentTooltipForWord = null;  // Tracks which word the tooltip is for
 let _lookupInProgress = false;     // Prevents double-trigger on rapid clicks
 
-/** Cache for words lookup fetched from Gemini in batches */
-let geminiDictCache = {};
-
 /** Current active tab */
 let activeTab = "subtitles";
 
@@ -57,15 +50,8 @@ let readerFlipped = false;
 // §2. Initialization & Event Listeners
 // ═══════════════════════════════════════════════════════════════════
 
-// ── Populate saved API keys into the input fields ────────────────
-document.getElementById("deepl-key").value = DEEPL_KEY;
-document.getElementById("gemini-key").value = GEMINI_KEY;
-
-// ── Load cached subtitles & Gemini dict cache ────────────────────
-chrome.storage.local.get(["cachedSubtitles", "geminiDictCache"], (result) => {
-    if (result.geminiDictCache) {
-        geminiDictCache = result.geminiDictCache;
-    }
+// ── Load cached subtitles ────────────────────
+chrome.storage.local.get(["cachedSubtitles"], (result) => {
     if (result.cachedSubtitles?.length > 0) {
         renderSubtitles(result.cachedSubtitles);
     }
@@ -88,34 +74,31 @@ try {
     console.warn("J-SUB: Failed to register message listener (context invalidated).");
 }
 
-// ── Save API Keys Button ─────────────────────────────────────────
-document.getElementById("save-keys-btn").addEventListener("click", () => {
-    DEEPL_KEY = document.getElementById("deepl-key").value.trim();
-    GEMINI_KEY = document.getElementById("gemini-key").value.trim();
-    localStorage.setItem("deepl_api_key", DEEPL_KEY);
-    localStorage.setItem("gemini_api_key", GEMINI_KEY);
-
-    // Visual feedback
-    const btn = document.getElementById("save-keys-btn");
-    btn.textContent = "✓ Saved!";
-    btn.classList.add("saved");
-    setTimeout(() => {
-        btn.textContent = "Save API Keys";
-        btn.classList.remove("saved");
-    }, 2000);
-});
-
 // ── Toggle Settings Panel Visibility ─────────────────────────────
 document.getElementById("settings-toggle").addEventListener("click", () => {
     const panel = document.getElementById("settings-panel");
     const toggle = document.getElementById("settings-toggle");
     const isCollapsed = panel.classList.toggle("collapsed");
-    toggle.textContent = isCollapsed ? "⚙ Settings" : "⚙ Hide";
+    toggle.textContent = isCollapsed ? "⚙ Status" : "⚙ Hide";
 });
 
-// ── Preload the dictionary in background ─────────────────────────
-loadDictionary().then(() => {
-    console.log("J-SUB: Dictionary preloaded");
+// ── Preload the dictionary and Kuromoji tokenizer in background ──
+updateProgress("Loading offline resources...", 5);
+Promise.all([
+    loadDictionary(),
+    loadKuromoji()
+]).then(() => {
+    console.log("J-SUB: Offline dictionary & Kuromoji tokenizer preloaded");
+    updateProgress("Offline resources loaded ✓", 100);
+    setTimeout(() => {
+        if (currentSubtitles.length === 0) {
+            updateProgress("Waiting for subtitles…", 0);
+        }
+    }, 2000);
+}).catch((err) => {
+    console.error("J-SUB: Failed to preload offline resources:", err);
+    const errText = err && (err.message || err.statusText || String(err));
+    updateProgress(`⚠ Error loading resources: ${errText}`, 0);
 });
 
 // ── Initialize tab system ────────────────────────────────────────
@@ -259,34 +242,82 @@ function renderTokenizedText(text, sentenceIndex) {
  *
  * @param {Array<{text: string}>} subs - Array of subtitle objects
  */
+/**
+ * Renders the full subtitle transcript into the side panel UI.
+ * Each subtitle becomes a sentence box with tokenized Japanese text
+ * and a local gloss translation.
+ *
+ * @param {Array<{text: string}>} subs - Array of subtitle objects
+ */
 async function renderSubtitles(subs) {
-    if (isProcessingQueue) return; // Prevent double-processing on duplicate messages
-
-    // Capture the active position BEFORE resetting state
-    // (lastHighlightedIndex gets reset to -1 below, so we must read it first)
-    const resumeFrom = lastHighlightedIndex >= 0 ? lastHighlightedIndex : 0;
-
     currentSubtitles = subs;
     totalSubs = subs.length;
-    processedSubs = 0;
     lastHighlightedIndex = -1;
 
     const container = document.getElementById("transcript-container");
-    const noKeys = !DEEPL_KEY && !GEMINI_KEY;
+    container.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>Processing subtitles offline...</p></div>`;
 
-    // Build the transcript UI
-    container.innerHTML = subs
-        .map((sub, i) => `
+    updateProgress("Analyzing subtitles...", 15);
+    
+    // Ensure offline dictionary and kuromoji are preloaded before tokenizing
+    try {
+        await Promise.all([loadDictionary(), loadKuromoji()]);
+    } catch (e) {
+        console.error("J-SUB: Resource preloading failed before render:", e);
+    }
+
+    updateProgress("Generating offline gloss translations...", 50);
+
+    const resumeFrom = lastHighlightedIndex >= 0 ? lastHighlightedIndex : 0;
+    
+    // Render and translate all subtitle boxes in parallel
+    const boxesHtmlPromises = subs.map(async (sub, i) => {
+        let tokensHtml = "";
+        let translation = "";
+        
+        try {
+            // 1. Morphological analysis with Kuromoji
+            const tokens = await analyzeJapaneseText(sub.text);
+            if (tokens && tokens.length > 0) {
+                tokensHtml = tokens.map((token) => {
+                    if (token.isWord) {
+                        return `<span class="jp-token" data-word="${escapeHtml(token.text)}" data-base="${escapeHtml(token.baseForm)}" data-pos="${escapeHtml(token.pos)}" data-reading="${escapeHtml(token.reading)}" data-sentence="${i}">${escapeHtml(token.text)}</span>`;
+                    }
+                    return `<span class="jp-separator">${escapeHtml(token.text)}</span>`;
+                }).join("");
+            } else {
+                // Fallback to basic tokenizer if kuromoji fails
+                tokensHtml = renderTokenizedText(sub.text, i);
+            }
+        } catch (err) {
+            console.error(`J-SUB: Tokenization error for subtitle ${i}:`, err);
+            tokensHtml = renderTokenizedText(sub.text, i);
+        }
+
+        try {
+            // 2. Offline gloss translation
+            translation = await translateSentenceOffline(sub.text);
+        } catch (err) {
+            console.error(`J-SUB: Translation error for subtitle ${i}:`, err);
+            translation = "Translation error";
+        }
+
+        return `
             <div class="sentence-box" id="sub-box-${i}">
-                <div class="jp-text" id="jp-${i}">${renderTokenizedText(sub.text, i)}</div>
-                <div class="en-translation" id="trans-${i}">${
-                    noKeys
-                        ? '<span class="error">⚠ Set an API key above to translate</span>'
-                        : '<span class="shimmer">translating…</span>'
-                }</div>
+                <div class="jp-text" id="jp-${i}">${tokensHtml}</div>
+                <div class="en-translation" id="trans-${i}">${escapeHtml(translation)}</div>
             </div>
-        `)
-        .join("");
+        `;
+    });
+
+    try {
+        const boxesHtml = await Promise.all(boxesHtmlPromises);
+        container.innerHTML = boxesHtml.join("");
+    } catch (e) {
+        console.error("J-SUB: Failed to compile subtitle boxes HTML:", e);
+        container.innerHTML = `<div class="empty-state"><p>⚠ Error loading subtitles</p></div>`;
+        return;
+    }
 
     // Attach click handlers to all clickable tokens
     container.querySelectorAll(".jp-token").forEach((span) => {
@@ -300,302 +331,11 @@ async function renderSubtitles(subs) {
         });
     });
 
-    // Guard: if no API keys are set, stop here
-    if (noKeys) {
-        updateProgress("⚠ No API keys configured — open Settings", 0);
-        return;
-    }
-
-    // Begin batch translation from the current playback position
-    // This prioritizes translating what the user is currently watching,
-    // then radiates outward (forward first, then backward)
-    updateProgress("Queuing batch translation…");
-
-    // Run background prefetch for missing words using Gemini for lesser API rate usage
-    loadDictionary().then((dict) => {
-        if (dict && GEMINI_KEY) {
-            prefetchMissingWords(subs, dict).catch((err) => {
-                console.error("J-SUB: prefetchMissingWords error:", err);
-            });
-        }
-    });
-
-    await processInBatches(subs, resumeFrom);
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// §6. Batch Translation Engine (DeepL + Gemini)
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Builds a translation order that radiates outward from `startIndex`.
- * Priority: current position → forward (rest of episode) → backward.
- *
- * Example with startIndex=5, total=10:
- *   Order: [5, 6, 7, 8, 9, 4, 3, 2, 1, 0]
- *
- * This ensures the user sees translations for what they're currently
- * watching first, then ahead (since they watch forward), then behind.
- */
-function buildRadiatingOrder(total, startIndex) {
-    const order = [];
-    const start = Math.max(0, Math.min(startIndex, total - 1));
-
-    // Phase 1: Forward from start to end
-    for (let i = start; i < total; i++) {
-        order.push(i);
-    }
-    // Phase 2: Backward from (start - 1) to 0
-    for (let i = start - 1; i >= 0; i--) {
-        order.push(i);
-    }
-
-    return order;
-}
-
-/**
- * Processes all subtitles in batches of 30, starting from the
- * current playback position and radiating outward.
- * Each batch tries DeepL first, then falls back to Gemini.
- * A 2-second pause between batches prevents API rate limiting.
- */
-async function processInBatches(subs, startIndex = 0) {
-    isProcessingQueue = true;
-    const BATCH_SIZE = 30;
-
-    // Build the translation order: radiate from current position
-    const order = buildRadiatingOrder(subs.length, startIndex);
-
-    // Process in batches following the radiating order
-    for (let batchStart = 0; batchStart < order.length; batchStart += BATCH_SIZE) {
-        const batchIndices = order.slice(batchStart, batchStart + BATCH_SIZE);
-        const batchTexts = batchIndices.map(i => subs[i]);
-
-        try {
-            // Translate this batch
-            const texts = batchTexts.map(b => b.text);
-            const translations = await translateBatchTexts(texts);
-
-            // Map translations back to their correct subtitle indices
-            translations.forEach((t, i) => {
-                if (t.error) {
-                    setTranslation(batchIndices[i], t.text, "error");
-                } else {
-                    setTranslation(batchIndices[i], t.text);
-                }
-            });
-        } catch (err) {
-            console.error("J-SUB: Batch translation failed:", err);
-            batchIndices.forEach(idx => {
-                setTranslation(idx, "⚠ Translation failed", "error");
-            });
-        }
-
-        processedSubs += batchIndices.length;
-        const pct = Math.round((processedSubs / totalSubs) * 100);
-        updateProgress(`Translating… ${pct}%`);
-
-        // Rate-limit pause between batches (skip after final batch)
-        if (batchStart + BATCH_SIZE < order.length) {
-            await sleep(2000);
-        }
-    }
-
-    updateProgress("✓ Episode translated!", 100);
-    isProcessingQueue = false;
-}
-
-/**
- * Translates an array of text strings.
- * Strategy: DeepL (primary, fast) → Gemini 3.5 Flash (fallback)
- *
- * Returns an array of { text, error? } objects in the same order.
- */
-async function translateBatchTexts(texts) {
-    const results = texts.map(() => ({ text: "⚠ Translation unavailable", error: true }));
-
-    // ── Engine 1: DeepL (Primary) ────────────────────────────────
-    if (DEEPL_KEY) {
-        try {
-            const res = await fetch("https://api-free.deepl.com/v2/translate", {
-                method: "POST",
-                headers: {
-                    Authorization: `DeepL-Auth-Key ${DEEPL_KEY}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ text: texts, target_lang: "EN" }),
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                data.translations.forEach((t, i) => {
-                    results[i] = { text: t.text, error: false };
-                });
-                return results;
-            }
-
-            const errMsg = getDeepLErrorMessage(res.status);
-            console.warn(`J-SUB: DeepL returned ${res.status}: ${errMsg}`);
-
-            if (!GEMINI_KEY) {
-                results.forEach((_, i) => {
-                    results[i] = { text: errMsg, error: true };
-                });
-                return results;
-            }
-        } catch (e) {
-            console.warn("J-SUB: DeepL network error, falling back to Gemini…");
-        }
-    }
-
-    // ── Engine 2: Gemini 3.5 Flash (Fallback) ────────────────────
-    if (GEMINI_KEY) {
-        try {
-            const prompt =
-                "Translate the following JSON array of Japanese sentences to English. " +
-                "Return ONLY a valid JSON array of strings with the English translations " +
-                "in the exact same order. No markdown, no explanation, no code fences.\n" +
-                `Input: ${JSON.stringify(texts)}`;
-
-            const url =
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent" +
-                `?key=${GEMINI_KEY}`;
-
-            const res = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                }),
-            });
-
-            if (!res.ok) {
-                const errMsg =
-                    res.status === 403
-                        ? "⚠ Invalid Gemini API key"
-                        : res.status === 429
-                        ? "⚠ Gemini rate limited — try again soon"
-                        : `⚠ Gemini error (${res.status})`;
-                results.forEach((_, i) => {
-                    results[i] = { text: errMsg, error: true };
-                });
-                return results;
-            }
-
-            const data = await res.json();
-            const rawText =
-                data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            const translations = parseGeminiResponse(rawText, texts.length);
-
-            translations.forEach((t, i) => {
-                results[i] = { text: t, error: false };
-            });
-            return results;
-        } catch (e) {
-            console.error("J-SUB: Gemini fallback failed:", e);
-        }
-    }
-
-    // ── Both engines unavailable / failed ────────────────────────
-    return results;
-}
-
-/**
- * Returns a human-readable error message for DeepL HTTP status codes.
- */
-function getDeepLErrorMessage(status) {
-    switch (status) {
-        case 403:
-            return "⚠ Invalid DeepL API key — check Settings";
-        case 429:
-            return "⚠ DeepL rate limit hit — wait and retry";
-        case 456:
-            return "⚠ DeepL quota exceeded for this month";
-        case 413:
-            return "⚠ Request too large — batch size exceeded";
-        default:
-            return `⚠ DeepL error (HTTP ${status})`;
-    }
-}
-
-/**
- * Parses Gemini's text response into an array of translation strings.
- */
-function parseGeminiResponse(rawText, expectedCount) {
-    // ── Strategy 1: Direct JSON parse ────────────────────────────
-    try {
-        const cleaned = rawText
-            .replace(/^```(?:json)?\s*/im, "")
-            .replace(/```\s*$/im, "")
-            .trim();
-        const parsed = JSON.parse(cleaned);
-        if (Array.isArray(parsed)) {
-            return parsed.slice(0, expectedCount);
-        }
-    } catch (e) {
-        /* Continue to fallback strategies */
-    }
-
-    // ── Strategy 2: Regex-extract the JSON array ─────────────────
-    try {
-        const arrayMatch = rawText.match(/\[[\s\S]*\]/);
-        if (arrayMatch) {
-            const parsed = JSON.parse(arrayMatch[0]);
-            if (Array.isArray(parsed)) {
-                return parsed.slice(0, expectedCount);
-            }
-        }
-    } catch (e) {
-        /* Continue */
-    }
-
-    // ── Strategy 3: Extract individually quoted strings ──────────
-    try {
-        const strings = [];
-        const quoteRegex = /"((?:[^"\\]|\\.)*)"/g;
-        let match;
-        while ((match = quoteRegex.exec(rawText)) !== null) {
-            strings.push(
-                match[1].replace(/\\"/g, '"').replace(/\\n/g, "\n")
-            );
-        }
-        if (strings.length >= expectedCount) {
-            return strings.slice(0, expectedCount);
-        }
-        if (strings.length > 0) return strings;
-    } catch (e) {
-        /* Continue */
-    }
-
-    // ── Strategy 4: Line-by-line split (last resort) ─────────────
-    console.warn("J-SUB: Using line-by-line fallback for Gemini response.");
-    const lines = rawText
-        .split("\n")
-        .map((l) => l.replace(/^\d+[.)]\s*/, "").trim())
-        .filter(
-            (l) =>
-                l.length > 0 &&
-                !l.startsWith("[") &&
-                !l.startsWith("]") &&
-                !l.startsWith("```")
-        );
-
-    return lines.length > 0
-        ? lines.slice(0, expectedCount)
-        : Array(expectedCount).fill("[Translation unavailable]");
-}
-
-/**
- * Updates a single translation element in the DOM.
- */
-function setTranslation(index, text, errorClass = null) {
-    const el = document.getElementById(`trans-${index}`);
-    if (!el) return;
-
-    if (errorClass) {
-        el.innerHTML = `<span class="${errorClass}">${escapeHtml(text)}</span>`;
-    } else {
-        el.textContent = text;
+    updateProgress("✓ Episode parsed offline", 100);
+    
+    // Jump/Scroll to playback position
+    if (resumeFrom < subs.length) {
+        highlightActiveSubtitle(subs[resumeFrom].text);
     }
 }
 
@@ -723,13 +463,16 @@ function highlightActiveSubtitle(activeText) {
 
 /**
  * Handles a click on a Japanese token.
- * Flow: Try offline JMDict → if not found, fall back to Gemini API.
+ * Performs a completely offline lookup in the JMDict dictionary.
  */
 async function handleTokenClick(event) {
     event.stopPropagation();
 
     const span = event.currentTarget;
     const word = span.dataset.word;
+    const baseForm = span.dataset.base || null;
+    const pos = span.dataset.pos || "";
+    const reading = span.dataset.reading || "";
     const sentenceIndex = parseInt(span.dataset.sentence, 10);
     const sentence = currentSubtitles[sentenceIndex]?.text || "";
 
@@ -756,135 +499,55 @@ async function handleTokenClick(event) {
         null, null
     );
 
-    // ── Try offline dictionary first ─────────────────────────────
-    const dictResult = await lookupWord(word);
-
-    if (dictResult) {
-        _lookupInProgress = false; // Release guard after async work
-        const html = formatDictResult(dictResult);
-        const wordData = extractWordData(dictResult);
-        wordData.sentence = sentence;
-        currentTooltipWordData = wordData;
-        const saved = await isWordSaved(wordData.word);
-        showTooltip(span, html, wordData, saved);
-        return;
-    }
-
-    // ── Try Gemini batch cache next ──────────────────────────────
-    if (geminiDictCache[word]) {
-        _lookupInProgress = false;
-        const wordData = { ...geminiDictCache[word] }; // Shallow copy
-        wordData.sentence = sentence;
-
-        let html = `<div class="dict-entry">`;
-        html += `<div class="dict-header">`;
-        html += `<span class="dict-word">📖 ${escapeHtml(wordData.word)}</span>`;
-        if (wordData.reading) {
-            html += `<span class="dict-reading">【${escapeHtml(wordData.reading)}】</span>`;
-        }
-        html += `</div>`;
-        html += `<div class="dict-sense">`;
-        if (wordData.pos) {
-            html += `<span class="dict-pos">${escapeHtml(wordData.pos)}</span>`;
-        }
-        html += `<span class="dict-gloss">${escapeHtml(wordData.meaning)}</span>`;
-        html += `</div>`;
-        html += `<div class="dict-deconj" style="margin-top:6px;color:var(--text-dim);font-size:0.7rem;">via Gemini Batch Cache</div>`;
-        html += `</div>`;
-
-        currentTooltipWordData = wordData;
-        const saved = await isWordSaved(wordData.word);
-        showTooltip(span, html, wordData, saved);
-        return;
-    }
-
-    _lookupInProgress = false; // Release guard for live fallback
-
-    // ── Fallback to Gemini API ───────────────────────────────────
-    if (!GEMINI_KEY) {
-        showTooltip(span, `⚠ "${escapeHtml(word)}" not in dictionary. Set a Gemini API key for extended lookups.`, null, null);
-        return;
-    }
-
     try {
-        const prompt =
-            `You are a concise Japanese-English dictionary for language learners. ` +
-            `Give a brief dictionary entry for the word "${word}" as used in this sentence: "${sentence}".\n\n` +
-            `Format your response EXACTLY as JSON (no markdown, no code fences):\n` +
-            `{"word":"${word}","reading":"hiragana reading","pos":"part of speech","meaning":"English meaning in this context"}\n\n` +
-            `Keep it brief and focused.`;
+        // ── Try offline dictionary first with baseForm optimization ──
+        const dictResult = await lookupWord(word, baseForm);
 
-        const url =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent" +
-            `?key=${GEMINI_KEY}`;
-
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-            }),
-        });
-
-        if (!res.ok) {
-            showTooltip(span, `⚠ Gemini error (${res.status})`, null, null);
-            return;
-        }
-
-        const data = await res.json();
-        const rawText =
-            data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-        // Try to parse structured JSON from Gemini
-        let wordData = null;
-        try {
-            const cleaned = rawText
-                .replace(/^```(?:json)?\s*/im, "")
-                .replace(/```\s*$/im, "")
-                .trim();
-            wordData = JSON.parse(cleaned);
+        if (dictResult) {
+            _lookupInProgress = false; // Release guard
+            const html = formatDictResult(dictResult);
+            const wordData = extractWordData(dictResult);
             wordData.sentence = sentence;
-            wordData.allSenses = [{ pos: wordData.pos, meaning: wordData.meaning }];
-        } catch (e) {
-            // Fallback: display raw text
-            const formatted = rawText
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/\n/g, "<br>")
-                .replace(
-                    /(Reading|Type|Meaning|Example):/g,
-                    "<strong>$1:</strong>"
-                )
-                .replace(/📖/g, "<strong>📖</strong>");
-
-            showTooltip(span, formatted, null, null);
+            currentTooltipWordData = wordData;
+            const saved = await isWordSaved(wordData.word);
+            showTooltip(span, html, wordData, saved);
             return;
         }
 
-        // Build structured HTML from Gemini response
+        // ── Fallback: Word not in dictionary, construct a metadata tooltip ──
+        _lookupInProgress = false; // Release guard
+        
         let html = `<div class="dict-entry">`;
         html += `<div class="dict-header">`;
-        html += `<span class="dict-word">📖 ${escapeHtml(wordData.word)}</span>`;
-        if (wordData.reading) {
-            html += `<span class="dict-reading">【${escapeHtml(wordData.reading)}】</span>`;
+        html += `<span class="dict-word">📖 ${escapeHtml(word)}</span>`;
+        if (reading) {
+            html += `<span class="dict-reading">【${escapeHtml(reading)}】</span>`;
         }
         html += `</div>`;
         html += `<div class="dict-sense">`;
-        if (wordData.pos) {
-            html += `<span class="dict-pos">${escapeHtml(wordData.pos)}</span>`;
+        if (pos) {
+            html += `<span class="dict-pos">${escapeHtml(pos)}</span>`;
         }
-        html += `<span class="dict-gloss">${escapeHtml(wordData.meaning)}</span>`;
+        html += `<span class="dict-gloss">Offline definition unavailable.</span>`;
         html += `</div>`;
-        html += `<div class="dict-deconj" style="margin-top:6px;color:var(--text-dim);font-size:0.7rem;">via Gemini AI</div>`;
         html += `</div>`;
 
+        // Dummy word data to allow saving anyway if they want to translate manually later
+        const wordData = {
+            word: word,
+            reading: reading,
+            meaning: "Offline definition unavailable",
+            pos: pos,
+            sentence: sentence
+        };
+        
         currentTooltipWordData = wordData;
-        const saved = await isWordSaved(wordData.word);
+        const saved = await isWordSaved(word.word);
         showTooltip(span, html, wordData, saved);
     } catch (e) {
-        showTooltip(span, "⚠ Network error — could not fetch definition.", null, null);
-        console.error("J-SUB: Dictionary lookup failed:", e);
+        _lookupInProgress = false;
+        showTooltip(span, "⚠ Offline lookup failed.", null, null);
+        console.error("J-SUB: Offline dictionary lookup failed:", e);
     }
 }
 
@@ -1562,146 +1225,3 @@ function updateScrollToActiveButton() {
 
 // ── Initialize the scroll-to-active button on load ───────────────
 initScrollToActiveButton();
-
-// ═══════════════════════════════════════════════════════════════════
-// §13. Background Batch Pre-fetching for Missing Words
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Prefetches definitions from Gemini for all words in the subtitles
- * that do not exist in the offline JMDict dictionary.
- * Runs in the background and saves definitions to geminiDictCache.
- */
-async function prefetchMissingWords(subs, dict) {
-    const allUniqueWords = new Set();
-    for (const sub of subs) {
-        const tokens = tokenizeJapanese(sub.text);
-        for (const token of tokens) {
-            if (token.clickable) {
-                const word = token.text;
-                // Only inspect words not in offline dict and not already in cache
-                if (!dict[word] && !geminiDictCache[word]) {
-                    // Check if base form conjugations are in dictionary
-                    const baseForms = deconjugate(word);
-                    let foundBase = false;
-                    for (const base of baseForms) {
-                        if (dict[base]) { foundBase = true; break; }
-                    }
-                    if (foundBase) continue;
-
-                    // Check stripped particles
-                    const particles = ["は", "が", "を", "に", "で", "と", "も", "の", "へ", "か", "よ", "ね"];
-                    let foundStripped = false;
-                    for (const p of particles) {
-                        if (word.endsWith(p) && word.length > 1) {
-                            const stripped = word.slice(0, -1);
-                            if (dict[stripped]) { foundStripped = true; break; }
-                            const strippedBases = deconjugate(stripped);
-                            for (const base of strippedBases) {
-                                if (dict[base]) { foundStripped = true; break; }
-                            }
-                        }
-                    }
-                    if (foundStripped) continue;
-
-                    allUniqueWords.add(word);
-                }
-            }
-        }
-    }
-
-    const missingWords = Array.from(allUniqueWords);
-    if (missingWords.length === 0) return;
-
-    console.log(`J-SUB: Found ${missingWords.length} unique words missing from JMDict. Fetching definitions from Gemini in background batches...`);
-
-    const BATCH_SIZE = 15;
-    for (let i = 0; i < missingWords.length; i += BATCH_SIZE) {
-        const batch = missingWords.slice(i, i + BATCH_SIZE);
-        await fetchWordDefinitionsBatch(batch);
-        if (i + BATCH_SIZE < missingWords.length) {
-            await sleep(2500); // 2.5s pace to avoid hitting Gemini rate limit
-        }
-    }
-}
-
-/**
- * Calls Gemini to translate/explain a list of words in a single batch request.
- */
-async function fetchWordDefinitionsBatch(words) {
-    try {
-        const prompt =
-            `You are a highly precise, concise Japanese-English dictionary.\n` +
-            `For each Japanese word in the following list, provide a brief dictionary entry (reading in hiragana, part of speech, and English meaning).\n\n` +
-            `Input words: ${JSON.stringify(words)}\n\n` +
-            `Format your response EXACTLY as a JSON object where the keys are the input words, and the values are objects structured EXACTLY like this (no markdown, no code fences, no explanations):\n` +
-            `{\n` +
-            `  "word1": {"word": "word1", "reading": "hiragana reading", "pos": "noun/verb/adj...", "meaning": "English meaning"}\n` +
-            `}`;
-
-        const url =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent" +
-            `?key=${GEMINI_KEY}`;
-
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-            }),
-        });
-
-        if (!res.ok) {
-            console.warn(`J-SUB: Gemini batch word lookup returned HTTP ${res.status}`);
-            return;
-        }
-
-        const data = await res.json();
-        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        const parsed = parseGeminiBatchResponse(rawText);
-
-        if (parsed) {
-            let addedCount = 0;
-            for (const key of Object.keys(parsed)) {
-                const entry = parsed[key];
-                if (entry && entry.word) {
-                    geminiDictCache[key] = {
-                        word: entry.word,
-                        reading: entry.reading || "",
-                        pos: entry.pos || "",
-                        meaning: entry.meaning || "",
-                        allSenses: [{ pos: entry.pos || "", meaning: entry.meaning || "" }]
-                    };
-                    addedCount++;
-                }
-            }
-            console.log(`J-SUB: Cached definitions for ${addedCount} missing words from Gemini.`);
-            chrome.storage.local.set({ geminiDictCache });
-        }
-    } catch (e) {
-        console.error("J-SUB: Failed to fetch word definitions batch:", e);
-    }
-}
-
-/**
- * Parses the raw text returned by Gemini into a JSON dictionary object.
- */
-function parseGeminiBatchResponse(rawText) {
-    try {
-        const cleaned = rawText
-            .replace(/^```(?:json)?\s*/im, "")
-            .replace(/```\s*$/im, "")
-            .trim();
-        return JSON.parse(cleaned);
-    } catch (e) {
-        try {
-            const match = rawText.match(/\{[\s\S]*\}/);
-            if (match) {
-                return JSON.parse(match[0]);
-            }
-        } catch (err) {
-            console.warn("J-SUB: Failed to parse Gemini batch response:", err);
-        }
-    }
-    return null;
-}

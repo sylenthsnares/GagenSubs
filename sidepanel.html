@@ -1424,17 +1424,22 @@
 
     <div class="header-bar" id="header-bar">
         <div class="header-top">
-            <h1>Translation Engine</h1>
+            <h1>Offline Translation</h1>
             <div class="header-actions">
-                <button class="settings-toggle" id="settings-toggle">⚙ Settings</button>
+                <span class="offline-badge" style="font-size:0.68rem;background:rgba(46,204,113,0.15);color:var(--success);padding:3px 8px;border-radius:12px;border:1px solid rgba(46,204,113,0.3);font-weight:600;letter-spacing:0.5px;">OFFLINE</span>
+                <button class="settings-toggle" id="settings-toggle">⚙ Status</button>
             </div>
         </div>
 
         <div class="settings-panel collapsed" id="settings-panel">
-            <div class="input-group">
-                <input type="password" id="deepl-key" placeholder="DeepL API Key (Primary)" autocomplete="off" spellcheck="false">
-                <input type="password" id="gemini-key" placeholder="Gemini API Key (Fallback + Dictionary)" autocomplete="off" spellcheck="false">
-                <button class="btn-primary" id="save-keys-btn">Save API Keys</button>
+            <div class="input-group" style="font-size:0.75rem;color:var(--text-secondary);line-height:1.5;gap:6px;padding:8px 12px;background:var(--bg-input);border-radius:var(--radius-sm);border:1px solid var(--border-default);margin-bottom:8px;">
+                <div><strong>Morphology:</strong> Kuromoji NLP Engine (Local)</div>
+                <div><strong>Dictionary:</strong> JMDict Offline Index (~170k terms)</div>
+                <div><strong>Translation:</strong> Interactive Grammar Glossing</div>
+                <div style="color:var(--success);margin-top:4px;font-weight:600;display:flex;align-items:center;gap:4px;">
+                    <span style="display:inline-block;width:6px;height:6px;background:var(--success);border-radius:50%;"></span>
+                    Fully Offline Mode Active
+                </div>
             </div>
         </div>
 
@@ -1535,8 +1540,11 @@
     <!-- ════════════════════════════════════════════════════════════
          Scripts
          ════════════════════════════════════════════════════════════ -->
+    <script src="lib/kuromoji/kuromoji.js"></script>
+    <script src="kuromoji-wrapper.js"></script>
     <script src="dict-engine.js"></script>
     <script src="word-store.js"></script>
+    <script src="offline-translator.js"></script>
     <script src="sidepanel.js"></script>
 </body>
 </html>

@@ -308,19 +308,22 @@ function segmentWithDict(text, dict) {
 
 /**
  * Looks up a Japanese word in the offline dictionary.
- * Tries the exact form first, then attempts deconjugation.
+ * Tries the provided baseForm, then the exact form, then attempts deconjugation.
  *
  * @param {string} word - The Japanese word to look up
+ * @param {string} [baseForm] - Optional base/dictionary form from morphological analysis
  * @returns {object|null} - { word, entries: [...] } or null if not found
- *
- * Each entry in entries:
- *   { k: [kanji], r: [readings], s: [{ pos: [...], g: [...] }] }
  */
-async function lookupWord(word) {
+async function lookupWord(word, baseForm = null) {
     const dict = await loadDictionary();
     if (!dict) return null;
 
-    // ── Try exact match first ────────────────────────────────────
+    // ── Try provided base form first ──────────────────────────────
+    if (baseForm && dict[baseForm]) {
+        return { word: baseForm, originalForm: word, entries: dict[baseForm], exact: (word === baseForm) };
+    }
+
+    // ── Try exact match next ──────────────────────────────────────
     if (dict[word]) {
         return { word, entries: dict[word], exact: true };
     }

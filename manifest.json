@@ -2,17 +2,14 @@
   "manifest_version": 3,
   "name": "J-Sub Explainer Engine",
   "version": "4.0",
-  "description": "Extracts Japanese subtitles from Netflix, translates them via DeepL & Gemini, and displays them in an interactive side panel with real-time highlighting, offline dictionary lookups, vocabulary saving, and flashcard review.",
+  "description": "Extracts Japanese subtitles from Netflix and displays them in an interactive side panel with real-time highlighting, offline dictionary lookups, offline gloss translation, vocabulary saving, and flashcard review.",
   "permissions": [
     "sidePanel",
     "storage",
     "activeTab"
   ],
   "host_permissions": [
-    "*://*.netflix.com/*",
-    "https://api-free.deepl.com/*",
-    "https://api.deepl.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "*://*.netflix.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -39,7 +36,10 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["data/jmdict-lookup.json"],
+      "resources": [
+        "data/jmdict-lookup.json",
+        "lib/kuromoji/dict/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]
