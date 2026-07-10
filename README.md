@@ -4,8 +4,8 @@ A Chrome extension that extracts Japanese subtitles from Netflix, translates the
 
 ## Features
 
-- 📺 **Real-time subtitle extraction** — Automatically intercepts Japanese subtitles from Netflix
-- 🔄 **Batch translation** — Translates all subtitles using DeepL (primary) or Gemini (fallback)
+- 📺 **Real-time subtitle extraction** — Automatically intercepts Japanese and English subtitles from Netflix
+- 🔄 **Subtitle pairing** — Automatically pairs Japanese subtitles with official English subtitles using timing alignment
 - 📖 **Offline dictionary** — 460,000+ word offline JMDict dictionary with deconjugation engine
 - ⭐ **Vocabulary saving** — Save words you're learning with mastery tracking
 - 🃏 **Flashcard reader** — Review saved vocabulary with spaced-repetition flashcards
@@ -22,12 +22,8 @@ A Chrome extension that extracts Japanese subtitles from Netflix, translates the
 
 ## Setup
 
-Open the side panel and click **⚙ Settings** to configure:
+No API keys or external setups are required. GagenSubs works completely offline for word lookups, and automatically pulls sentence translations directly from Netflix's official English subtitle track.
 
-- **DeepL API Key** (Primary translator) — Get a free key at [deepl.com/pro-api](https://www.deepl.com/pro-api)
-- **Gemini API Key** (Fallback translator + extended dictionary) — Get one at [aistudio.google.com](https://aistudio.google.com/apikey)
-
-At least one API key is required for translations. The offline dictionary works without any keys.
 
 ## Rebuilding the Dictionary (Optional)
 

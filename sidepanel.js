@@ -7,9 +7,8 @@
  * ║  §3.  Tab Navigation                                            ║
  * ║  §4.  Japanese Text Tokenization                                ║
  * ║  §5.  Subtitle Rendering                                        ║
- * ║  §6.  Batch Translation Engine (DeepL + Gemini)                 ║
- * ║  §7.  Fuzzy Subtitle Highlighting (Dice Coefficient)            ║
- * ║  §8.  Interactive Word Dictionary (Offline + Gemini Tooltips)   ║
+ * ║  §6.  Fuzzy Subtitle Highlighting (Dice Coefficient)            ║
+ * ║  §7.  Interactive Word Dictionary (Offline Index Lookups)      ║
  * ║  §9.  Vocabulary Panel                                          ║
  * ║  §10. Flashcard Reader                                          ║
  * ║  §11. Utility Functions                                         ║
@@ -453,7 +452,7 @@ function highlightActiveSubtitle(activeText) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// §8. Interactive Word Dictionary (Offline + Gemini Tooltips)
+// §7. Interactive Word Dictionary (Offline Index Lookups)
 // ═══════════════════════════════════════════════════════════════════
 
 /**
