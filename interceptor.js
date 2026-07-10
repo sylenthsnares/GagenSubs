@@ -57,6 +57,32 @@ function deduplicateSubs(subs) {
  *   - TTML / DFXP / generic XML (namespace-aware)
  *   - WebVTT (with multi-line cue support)
  */
+/**
+ * Detects the primary language of a subtitle document.
+ * Checks the xml:lang attribute on the root <tt> element first,
+ * then falls back to script-character sniffing on the first cue.
+ *
+ * @param {string} data - Raw subtitle file text
+ * @param {Array<{text:string}>} subs - Already-parsed cues (for sniffing)
+ * @returns {"ja"|"en"|"unknown"}
+ */
+function detectSubtitleLanguage(data, subs) {
+    // 1. Try xml:lang attribute on the TTML root element
+    const langMatch = data.match(/xml:lang=["']([^"']+)["']/i);
+    if (langMatch) {
+        const lang = langMatch[1].toLowerCase();
+        if (lang.startsWith("ja")) return "ja";
+        if (lang.startsWith("en")) return "en";
+    }
+
+    // 2. Sniff the first non-empty cue's script (Japanese Unicode ranges)
+    const sample = subs.slice(0, 5).map(s => s.text).join("");
+    const jpChars = (sample.match(/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/g) || []).length;
+    if (jpChars > sample.length * 0.2) return "ja";
+
+    return "en"; // Default assume English if not Japanese
+}
+
 function processSubtitles(data) {
     let subs = [];
 
@@ -70,12 +96,21 @@ function processSubtitles(data) {
             subs = parseVTT(data);
         }
 
-        // Deduplicate and dispatch
+        // Deduplicate
         subs = deduplicateSubs(subs);
 
         if (subs.length > 0) {
-            console.log(`J-SUB: [OK] Parsed ${subs.length} unique subtitle cues`);
-            window.postMessage({ type: "J_SUB_FULL_TRACK", subtitles: subs }, "*");
+            const lang = detectSubtitleLanguage(data, subs);
+            console.log(`J-SUB: [OK] Parsed ${subs.length} unique subtitle cues (lang=${lang})`);
+
+            if (lang === "ja") {
+                window.postMessage({ type: "J_SUB_JP_TRACK", subtitles: subs }, "*");
+            } else if (lang === "en") {
+                window.postMessage({ type: "J_SUB_EN_TRACK", subtitles: subs }, "*");
+            } else {
+                // Unknown language — send as generic fallback (old behavior)
+                window.postMessage({ type: "J_SUB_FULL_TRACK", subtitles: subs }, "*");
+            }
         }
     } catch (err) {
         console.error("J-SUB: [ERROR] Subtitle parsing failed:", err);

@@ -294,13 +294,8 @@ async function renderSubtitles(subs) {
             tokensHtml = renderTokenizedText(sub.text, i);
         }
 
-        try {
-            // 2. Offline gloss translation
-            translation = await translateSentenceOffline(sub.text);
-        } catch (err) {
-            console.error(`J-SUB: Translation error for subtitle ${i}:`, err);
-            translation = "Translation error";
-        }
+        // 2. Sentence translation: Pull solely from official English subtitles
+        translation = (sub.enText && sub.enText.trim()) ? sub.enText : "(English subtitle not loaded)";
 
         return `
             <div class="sentence-box" id="sub-box-${i}">
@@ -331,7 +326,7 @@ async function renderSubtitles(subs) {
         });
     });
 
-    updateProgress("✓ Episode parsed offline", 100);
+    updateProgress("✓ Episode parsed", 100);
     
     // Jump/Scroll to playback position
     if (resumeFrom < subs.length) {
