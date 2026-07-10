@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "J-Sub Explainer Engine",
-  "version": "4.0",
+  "version": "4.1",
   "description": "Extracts Japanese subtitles from Netflix and displays them in an interactive side panel with real-time highlighting, offline dictionary lookups, offline gloss translation, vocabulary saving, and flashcard review.",
   "permissions": [
     "sidePanel",
